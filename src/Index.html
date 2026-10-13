@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<base target="_top">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --yellow:#FFD100; --black:#101820; --slate:#333F48; --mist:#DDE5ED; --paper:#F4F7FA; --coral:#FF585D; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--black); font:16px/1.5 Outfit, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:620px; margin:0 auto; padding:20px 16px 48px; }
+  .head { background:var(--yellow); border-radius:32px 4px 4px 4px; padding:22px 22px 20px; }
+  .head h1 { margin:0; font-size:26px; line-height:1.15; font-weight:700; }
+  .head p { margin:6px 0 0; color:var(--slate); font-size:15px; }
+  .card { background:#fff; border:1px solid var(--mist); border-radius:4px; padding:20px; margin-top:12px; }
+  .grid { display:grid; gap:16px; }
+  @media (min-width:560px) { .two { grid-template-columns:1fr 1fr; } }
+  label { display:block; font-weight:500; font-size:14px; margin-bottom:6px; }
+  .opt { font-weight:400; color:#6b7680; }
+  input, select, textarea { width:100%; font:inherit; color:inherit; padding:11px 12px; min-height:46px;
+    border:1.5px solid #c9d3dc; border-radius:4px; background:#fff; }
+  textarea { min-height:84px; resize:vertical; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--black); box-shadow:0 0 0 3px rgba(255,209,0,.7); }
+  .btn { display:block; width:100%; border:0; border-radius:4px; padding:14px 16px; min-height:50px;
+    font:inherit; font-weight:700; cursor:pointer; text-align:center; }
+  .btn:focus-visible { outline:3px solid var(--black); outline-offset:2px; }
+  .btn:disabled { opacity:.6; cursor:wait; }
+  .dark { background:var(--black); color:#fff; }
+  .dark:hover { background:#26313b; }
+  .yellow { background:var(--yellow); color:var(--black); }
+  .yellow:hover { background:#f2c700; }
+  .line { background:#fff; color:var(--black); border:1.5px solid var(--black); }
+  .plain { background:none; color:var(--slate); font-weight:500; text-decoration:underline; }
+  .error { margin-top:12px; padding:12px 14px; border-left:4px solid var(--coral); background:#fff1f1; border-radius:4px; }
+  .note { font-size:14px; color:var(--slate); margin:0; }
+  .saved { font-size:20px; font-weight:700; margin:0 0 4px; }
+  .bubble { white-space:pre-wrap; user-select:all; -webkit-user-select:all; background:var(--paper);
+    border-left:4px solid var(--yellow); border-radius:20px 4px 4px 4px; padding:14px 16px; font-size:15px; margin:14px 0 16px; }
+  .stack { display:grid; gap:10px; }
+  .toast { font-size:14px; font-weight:500; min-height:21px; margin:0; }
+  [hidden] { display:none !important; }
+  @media (prefers-reduced-motion:no-preference) { .bubble { animation:pop .25s ease-out; } }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>Send a lead to a store</h1>
+    <p>Saved to the lead sheet, then shared in the store's WhatsApp group.</p>
+  </div>
+
+  <div class="card" id="loading"><p class="note">Loading stores…</p></div>
+
+  <form class="card grid" id="form" hidden novalidate>
+    <div>
+      <label for="store">Store</label>
+      <select id="store" name="store" required></select>
+    </div>
+    <div class="grid two">
+      <div>
+        <label for="name">Customer name</label>
+        <input id="name" name="name" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="phone">Customer number</label>
+        <input id="phone" name="phone" type="tel" inputmode="numeric" maxlength="14" placeholder="10-digit mobile" required>
+      </div>
+    </div>
+    <div class="grid two">
+      <div>
+        <label for="category">Product category</label>
+        <select id="category" name="category" required></select>
+      </div>
+      <div>
+        <label for="product">Product name <span class="opt">(optional)</span></label>
+        <input id="product" name="product" autocomplete="off">
+      </div>
+    </div>
+    <div class="grid two">
+      <div>
+        <label for="visitDate">Expected visit date</label>
+        <input id="visitDate" name="visitDate" type="date" required>
+      </div>
+      <div>
+        <label for="visitTime">Expected visit time</label>
+        <input id="visitTime" name="visitTime" type="time" required>
+      </div>
+    </div>
+    <div>
+      <label for="discount">Discount offered <span class="opt">(leave blank if none)</span></label>
+      <input id="discount" name="discount" placeholder="e.g. 10% or ₹500" autocomplete="off">
+    </div>
+    <div>
+      <label for="remarks">Remarks <span class="opt">(optional)</span></label>
+      <textarea id="remarks" name="remarks" placeholder="Pain area, size, anything the store should know"></textarea>
+    </div>
+    <div id="byWrap">
+      <label for="submittedBy">Submitted by</label>
+    </div>
+    <button class="btn dark" id="saveBtn" type="submit">Save lead</button>
+    <div class="error" id="error" role="alert" hidden></div>
+  </form>
+
+  <div class="card" id="done" hidden>
+    <p class="saved" id="savedTitle"></p>
+    <p class="note" id="savedNote">Copy the message below and send it in the store group.</p>
+    <div class="bubble" id="preview"></div>
+    <div class="stack">
+      <button class="btn yellow" id="waBtn" type="button"></button>
+      <button class="btn line" id="copyBtn" type="button">Copy message only</button>
+      <p class="toast" id="toast" aria-live="polite"></p>
+      <button class="btn plain" id="newBtn" type="button">Add another lead</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let current = null;
+
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function fillSelect(el, items, placeholder) {
+    el.innerHTML = '';
+    const first = new Option(placeholder, '');
+    first.disabled = true; first.selected = true;
+    el.add(first);
+    items.forEach(v => el.add(new Option(v, v)));
+  }
+
+  function remembered() { try { return localStorage.getItem('fridoLeadAgent') || ''; } catch (e) { return ''; } }
+  function remember(v) { try { localStorage.setItem('fridoLeadAgent', v); } catch (e) {} }
+
+  function fillConfig(cfg) {
+    fillSelect($('store'), cfg.stores, 'Choose store');
+    fillSelect($('category'), cfg.categories, 'Choose category');
+
+    let by;
+    if (cfg.team.length) {
+      by = document.createElement('select');
+      fillSelect(by, cfg.team, 'Choose your name');
+    } else {
+      by = document.createElement('input');
+      by.autocomplete = 'name';
+    }
+    by.id = 'submittedBy'; by.name = 'submittedBy'; by.required = true;
+    $('byWrap').appendChild(by);
+    const saved = remembered();
+    if (saved) by.value = saved;
+
+    resetDate();
+    $('loading').hidden = true;
+    $('form').hidden = false;
+  }
+
+  function resetDate() {
+    $('visitDate').min = todayISO();
+    $('visitDate').value = '';
+  }
+
+  function showError(text) { $('error').textContent = text; $('error').hidden = false; }
+
+  function firstMissing() {
+    return [...$('form').querySelectorAll('[required]')].find(el => !String(el.value).trim());
+  }
+
+  $('form').addEventListener('submit', e => {
+    e.preventDefault();
+    $('error').hidden = true;
+    const missing = firstMissing();
+    if (missing) {
+      const label = document.querySelector('label[for="' + missing.id + '"]');
+      showError((label ? label.firstChild.textContent.trim() : 'A field') + ' is required.');
+      missing.focus();
+      return;
+    }
+    const data = Object.fromEntries(new FormData($('form')));
+    const btn = $('saveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    google.script.run
+      .withSuccessHandler(showSaved)
+      .withFailureHandler(err => {
+        showError(err.message || String(err));
+        btn.disabled = false; btn.textContent = 'Save lead';
+      })
+      .submitLead(data);
+  });
+
+  function showSaved(res) {
+    current = res;
+    remember($('submittedBy').value);
+    $('savedTitle').textContent = 'Lead ' + res.id + ' saved';
+    $('preview').textContent = res.message;
+    $('toast').textContent = '';
+    if (res.groupLink) {
+      $('waBtn').hidden = false;
+      $('waBtn').textContent = 'Copy message & open ' + res.store + ' group';
+      $('savedNote').textContent = 'Copy the message below and send it in the store group.';
+    } else {
+      $('waBtn').hidden = true;
+      $('savedNote').textContent = 'This store has no group link in the Setup tab yet. Copy the message and send it to the group yourself.';
+    }
+    $('form').hidden = true;
+    $('done').hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  function copy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove();
+    if (!ok && navigator.clipboard) { navigator.clipboard.writeText(text).catch(() => {}); ok = true; }
+    return ok;
+  }
+
+  $('waBtn').addEventListener('click', () => {
+    const ok = copy(current.message);
+    window.open(current.groupLink, '_blank');
+    $('toast').textContent = ok
+      ? 'Message copied. Paste it in the group and send.'
+      : 'Copy did not work. Press and hold the message above to copy it.';
+  });
+
+  $('copyBtn').addEventListener('click', () => {
+    $('toast').textContent = copy(current.message)
+      ? 'Message copied.'
+      : 'Copy did not work. Press and hold the message above to copy it.';
+  });
+
+  $('newBtn').addEventListener('click', () => {
+    const by = $('submittedBy').value;
+    $('form').reset();
+    $('submittedBy').value = by;
+    resetDate();
+    $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save lead';
+    $('done').hidden = true;
+    $('form').hidden = false;
+    $('store').focus();
+  });
+
+  if (typeof google === 'undefined' || !google.script) {
+    $('loading').innerHTML = '<p class="note">This page only works through the Apps Script web app link. ' +
+      'Paste this file into Apps Script as "Index", deploy it as a web app, and open the link it gives you.</p>';
+  } else {
+    google.script.run
+      .withSuccessHandler(fillConfig)
+      .withFailureHandler(err => { $('loading').textContent = err.message || String(err); })
+      .getConfig();
+  }
+</script>
+</body>
+</html>
