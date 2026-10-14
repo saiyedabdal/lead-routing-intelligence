@@ -29,18 +29,21 @@ The last step is manual on purpose. The store DSR groups are regular WhatsApp gr
 
 **Leads** tab, one row per lead:
 
-Lead ID · Submitted at · Store · Customer name · Customer number · Product name · Product category · Expected visit date · Expected visit time · Discount offered · Remarks · Submitted by
+Lead ID · Submitted at · Store · Customer name · Customer number · Products · Product category · Expected visit date · Expected visit time · Discount offered · Remarks · Submitted by
+
+Products holds every product picked, separated by commas. Expected visit time is a 2-hour slot such as `12pm-2pm`.
 
 **Setup** tab, edited by hand, read live by the form:
 
 | Column | Contents |
 |---|---|
-| A, Store | The 23 store names shown in the store dropdown |
+| A, Store | The 23 store names shown in the searchable store picker |
 | B, WhatsApp group link | Invite link of that store's DSR group (chat.whatsapp.com/…) |
 | C, Product categories | Category dropdown values |
 | D, Team members | "Submitted by" dropdown. If empty, the form shows a text box instead |
+| E, Products | Searchable multi-select product list. If empty, the form shows a plain product name box instead |
 
-Adding a store, category or team member only needs a new row in Setup. You don't need to touch the code or redeploy.
+Adding a store, category, team member or product only needs a new row in Setup. You don't need to touch the code or redeploy.
 
 ## First-time setup (manual, in the browser)
 
@@ -49,7 +52,7 @@ Adding a store, category or team member only needs a new row in Setup. You don't
 3. Click + next to Files → HTML, name it `Index` (no extension), and paste `src/Index.html`.
 4. Project Settings (gear): set Time zone to (GMT+05:30) India Standard Time.
 5. In the editor, choose `setup` in the function dropdown and click Run. Allow access. On the "unverified app" screen, choose Advanced → Go to project → Allow.
-6. In the Setup tab, paste each store's group invite link (WhatsApp → group info → Invite via link → Copy link; needs group admin) and add team member names.
+6. In the Setup tab, paste each store's group invite link (WhatsApp → group info → Invite via link → Copy link; needs group admin), add team member names, and list the products in column E.
 7. Deploy → New deployment → Web app. Execute as: Me. Who has access: anyone in the Frido org. Copy the URL.
 8. Submit a test lead, check the Leads tab, delete the test row, and share the URL with the team.
 
@@ -90,4 +93,5 @@ Always edit the existing deployment. A new deployment gives a new URL and the te
 | Store saved but no "open group" button | That store has no link in Setup column B |
 | WhatsApp shows "Join group" instead of the chat | The agent isn't a member of that store group |
 | Dates or times look off by hours | Script time zone isn't Asia/Kolkata (Project Settings) |
+| Form shows a plain "Product name" box instead of the product search | Setup column E (Products) is empty |
 | Changes don't show on the live link | You saved but didn't redeploy a new version |

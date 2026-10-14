@@ -39,6 +39,22 @@
     border-left:4px solid var(--yellow); border-radius:20px 4px 4px 4px; padding:14px 16px; font-size:15px; margin:14px 0 16px; }
   .stack { display:grid; gap:10px; }
   .toast { font-size:14px; font-weight:500; min-height:21px; margin:0; }
+  .combo { position:relative; }
+  .menu { position:absolute; z-index:5; left:0; right:0; top:calc(100% + 4px); margin:0; padding:4px 0; list-style:none;
+    background:#fff; border:1.5px solid var(--black); border-radius:4px; max-height:264px; overflow-y:auto;
+    box-shadow:0 8px 20px rgba(16,24,32,.14); }
+  .menu li { display:flex; gap:10px; align-items:center; padding:10px 12px; cursor:pointer; }
+  .menu li.active { background:var(--paper); box-shadow:inset 3px 0 0 var(--yellow); }
+  .menu li.empty { color:#6b7680; cursor:default; }
+  .tick { flex:none; width:20px; height:20px; border:1.5px solid #c9d3dc; border-radius:4px;
+    display:grid; place-items:center; font-size:13px; font-weight:700; }
+  [aria-selected="true"] .tick { background:var(--yellow); border-color:var(--black); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .chips:empty { display:none; }
+  .chip { display:inline-flex; align-items:center; gap:6px; border:0; border-radius:16px; padding:5px 10px 5px 12px;
+    background:var(--yellow); color:var(--black); font:inherit; font-size:14px; font-weight:500; cursor:pointer; }
+  .chip:focus-visible { outline:3px solid var(--black); outline-offset:1px; }
+  .chip b { font-size:17px; line-height:1; }
   [hidden] { display:none !important; }
   @media (prefers-reduced-motion:no-preference) { .bubble { animation:pop .25s ease-out; } }
   @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
@@ -56,7 +72,11 @@
   <form class="card grid" id="form" hidden novalidate>
     <div>
       <label for="store">Store</label>
-      <select id="store" name="store" required></select>
+      <div class="combo">
+        <input id="store" name="store" placeholder="Type to search stores" autocomplete="off" required
+          role="combobox" aria-expanded="false" aria-controls="storeMenu" aria-autocomplete="list">
+        <ul class="menu" id="storeMenu" role="listbox" hidden></ul>
+      </div>
     </div>
     <div class="grid two">
       <div>
@@ -68,15 +88,22 @@
         <input id="phone" name="phone" type="tel" inputmode="numeric" maxlength="14" placeholder="10-digit mobile" required>
       </div>
     </div>
-    <div class="grid two">
-      <div>
-        <label for="category">Product category</label>
-        <select id="category" name="category" required></select>
+    <div>
+      <label for="category">Product category</label>
+      <select id="category" name="category" required></select>
+    </div>
+    <div id="productPicker" hidden>
+      <label for="productSearch">Products <span class="opt">(optional, pick one or more)</span></label>
+      <div class="chips" id="productChips"></div>
+      <div class="combo">
+        <input id="productSearch" placeholder="Type to search products" autocomplete="off"
+          role="combobox" aria-expanded="false" aria-controls="productMenu" aria-autocomplete="list">
+        <ul class="menu" id="productMenu" role="listbox" aria-multiselectable="true" hidden></ul>
       </div>
-      <div>
-        <label for="product">Product name <span class="opt">(optional)</span></label>
-        <input id="product" name="product" autocomplete="off">
-      </div>
+    </div>
+    <div id="productText" hidden>
+      <label for="product">Product name <span class="opt">(optional)</span></label>
+      <input id="product" autocomplete="off">
     </div>
     <div class="grid two">
       <div>
@@ -85,7 +112,7 @@
       </div>
       <div>
         <label for="visitTime">Expected visit time</label>
-        <input id="visitTime" name="visitTime" type="time" required>
+        <select id="visitTime" name="visitTime" required></select>
       </div>
     </div>
     <div>
@@ -119,6 +146,8 @@
 <script>
   const $ = id => document.getElementById(id);
   let current = null;
+  let cfg = null;
+  let products = [];   // products picked for the current lead
 
   function todayISO() {
     const d = new Date();
@@ -127,8 +156,8 @@
 
   function fillSelect(el, items, placeholder) {
     el.innerHTML = '';
-    const first = new Option(placeholder, '');
-    first.disabled = true; first.selected = true;
+    const first = new Option(placeholder, '', true, true);   // also the value after form.reset()
+    first.disabled = true;
     el.add(first);
     items.forEach(v => el.add(new Option(v, v)));
   }
@@ -136,9 +165,118 @@
   function remembered() { try { return localStorage.getItem('fridoLeadAgent') || ''; } catch (e) { return ''; } }
   function remember(v) { try { localStorage.setItem('fridoLeadAgent', v); } catch (e) {} }
 
-  function fillConfig(cfg) {
-    fillSelect($('store'), cfg.stores, 'Choose store');
+  // Search box with a dropdown list. Every word typed must appear in the option.
+  // multi: picking keeps the list open and toggles the option instead of choosing one.
+  function picker(input, menu, o) {
+    let shown = [], active = -1;
+
+    function close() { menu.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+
+    function highlight() {
+      [...menu.children].forEach((li, i) => li.classList.toggle('active', i === active));
+      const li = menu.children[active];
+      if (li && shown.length) { input.setAttribute('aria-activedescendant', li.id); li.scrollIntoView({ block: 'nearest' }); }
+    }
+
+    function render() {
+      const items = o.items();
+      // A store that is already chosen shows the full list again on focus
+      const q = !o.multi && items.indexOf(input.value) >= 0 ? '' : input.value;
+      const words = q.toLowerCase().split(/\s+/).filter(String);
+      shown = items.filter(v => words.every(w => v.toLowerCase().indexOf(w) >= 0));
+      menu.innerHTML = '';
+      if (!shown.length) {
+        const li = document.createElement('li');
+        li.className = 'empty'; li.textContent = o.empty;
+        menu.appendChild(li);
+      }
+      shown.forEach((v, i) => {
+        const li = document.createElement('li');
+        li.id = menu.id + '-' + i;
+        li.setAttribute('role', 'option');
+        if (o.multi) {
+          li.setAttribute('aria-selected', String(o.isPicked(v)));
+          const tick = document.createElement('span');
+          tick.className = 'tick'; tick.textContent = o.isPicked(v) ? '✓' : '';
+          li.appendChild(tick);
+        }
+        li.appendChild(document.createTextNode(v));
+        li.addEventListener('click', () => pick(v));
+        menu.appendChild(li);
+      });
+      if (active >= shown.length || active < 0) active = shown.length ? 0 : -1;
+      highlight();
+      menu.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    function pick(v) {
+      o.onPick(v);
+      if (o.multi) { render(); input.focus(); }   // keep the search so several matches can be picked
+      else { input.value = v; close(); }
+    }
+
+    menu.addEventListener('mousedown', e => e.preventDefault());   // keep focus in the search box
+    input.addEventListener('focus', () => { active = -1; render(); if (!o.multi) input.select(); });
+    input.addEventListener('input', () => { active = -1; render(); });
+    input.addEventListener('blur', close);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (menu.hidden) { render(); return; }
+        if (!shown.length) return;
+        active = (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length;
+        highlight();
+      } else if (e.key === 'Enter' && !menu.hidden) {
+        e.preventDefault();
+        if (active >= 0 && shown.length) pick(shown[active]);
+      } else if (e.key === 'Escape' && !menu.hidden) {
+        e.preventDefault(); close();
+      }
+    });
+  }
+
+  function renderChips() {
+    const box = $('productChips');
+    box.innerHTML = '';
+    products.forEach(v => {
+      const chip = document.createElement('button');
+      chip.type = 'button'; chip.className = 'chip';
+      chip.setAttribute('aria-label', 'Remove ' + v);
+      chip.append(v, ' ');
+      const x = document.createElement('b');
+      x.textContent = '×';
+      chip.appendChild(x);
+      chip.addEventListener('click', () => { products = products.filter(p => p !== v); renderChips(); });
+      box.appendChild(chip);
+    });
+  }
+
+  function fillConfig(c) {
+    cfg = c;
+    picker($('store'), $('storeMenu'), {
+      items: () => cfg.stores,
+      empty: 'No store matches',
+      onPick: () => {}
+    });
     fillSelect($('category'), cfg.categories, 'Choose category');
+    fillSelect($('visitTime'), cfg.timeSlots, 'Choose time slot');
+
+    if (cfg.products.length) {
+      picker($('productSearch'), $('productMenu'), {
+        multi: true,
+        items: () => cfg.products,
+        empty: 'No product matches',
+        isPicked: v => products.indexOf(v) >= 0,
+        onPick: v => {
+          products = products.indexOf(v) >= 0 ? products.filter(p => p !== v) : products.concat(v);
+          renderChips();
+        }
+      });
+      $('productPicker').hidden = false;
+    } else {
+      $('productText').hidden = false;   // no product list in Setup yet, so free text
+    }
 
     let by;
     if (cfg.team.length) {
@@ -180,6 +318,18 @@
       return;
     }
     const data = Object.fromEntries(new FormData($('form')));
+    if (cfg.stores.indexOf(data.store) < 0) {
+      const typed = data.store.trim().toLowerCase();
+      const match = cfg.stores.find(v => v.toLowerCase() === typed);
+      if (!match) {
+        showError('Choose a store from the list.');
+        $('store').focus();
+        return;
+      }
+      data.store = $('store').value = match;
+    }
+    data.products = cfg.products.length ? products.slice()
+      : ($('product').value.trim() ? [$('product').value.trim()] : []);
     const btn = $('saveBtn');
     btn.disabled = true; btn.textContent = 'Saving…';
     google.script.run
@@ -241,6 +391,8 @@
     const by = $('submittedBy').value;
     $('form').reset();
     $('submittedBy').value = by;
+    products = [];
+    renderChips();
     resetDate();
     $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save lead';
     $('done').hidden = true;

@@ -6,7 +6,7 @@
  *    Paste this file as Code.gs and add an HTML file named "Index".
  * 2. Run setup() once and allow access. It creates the "Leads" and "Setup" tabs.
  * 3. In the Setup tab, paste each store's WhatsApp group invite link
- *    next to the store name. Edit categories and team names there any time.
+ *    next to the store name. Edit categories, team names and products there any time.
  * 4. Deploy -> New deployment -> Web app. Execute as: Me.
  *    Who has access: anyone in your Google org (or anyone with the link).
  *    Share the web app URL with the routing team.
@@ -17,7 +17,7 @@ const SETUP_SHEET = 'Setup';
 
 const LEAD_HEADERS = [
   'Lead ID', 'Submitted at', 'Store', 'Customer name', 'Customer number',
-  'Product name', 'Product category', 'Expected visit date', 'Expected visit time',
+  'Products', 'Product category', 'Expected visit date', 'Expected visit time',
   'Discount offered', 'Remarks', 'Submitted by'
 ];
 
@@ -36,6 +36,10 @@ const DEFAULT_CATEGORIES = [
   'Footwear', 'Orthotics', 'Body Support', 'Mobility', 'Personal Care', 'Ergonomic Furniture'
 ];
 
+const TIME_SLOTS = ['10am-12pm', '12pm-2pm', '2pm-4pm', '4pm-6pm', '6pm-8pm', '8pm-10pm'];
+
+const SETUP_HEADERS = ['Store', 'WhatsApp group link', 'Product categories', 'Team members', 'Products'];
+
 function setup() {
   const ss = SpreadsheetApp.getActive();
 
@@ -47,13 +51,22 @@ function setup() {
     leads.setFrozenRows(1);
     leads.getRange('E:E').setNumberFormat('@');        // keep phone numbers as text
     leads.getRange('H:H').setNumberFormat('dd-mmm-yyyy');
+    leads.getRange('I:I').setNumberFormat('@');        // time slots like 12pm-2pm
     leads.getRange('B:B').setNumberFormat('dd-mmm-yyyy hh:mm');
   }
 
-  if (!ss.getSheetByName(SETUP_SHEET)) {
+  const existing = ss.getSheetByName(SETUP_SHEET);
+  if (existing) {
+    // Older Setup tabs have no Products column; add just the header, keep everything else
+    if (!existing.getRange(1, 5).getDisplayValue().trim()) {
+      existing.getRange(1, 5).setValue(SETUP_HEADERS[4])
+        .setFontWeight('bold').setBackground('#101820').setFontColor('#FFFFFF');
+      existing.setColumnWidth(5, 240);
+    }
+  } else {
     const s = ss.insertSheet(SETUP_SHEET);
-    s.getRange(1, 1, 1, 4)
-      .setValues([['Store', 'WhatsApp group link', 'Product categories', 'Team members']])
+    s.getRange(1, 1, 1, SETUP_HEADERS.length)
+      .setValues([SETUP_HEADERS])
       .setFontWeight('bold').setBackground('#101820').setFontColor('#FFFFFF');
     s.getRange(2, 1, DEFAULT_STORES.length, 1).setValues(DEFAULT_STORES.map(v => [v]));
     s.getRange(2, 3, DEFAULT_CATEGORIES.length, 1).setValues(DEFAULT_CATEGORIES.map(v => [v]));
@@ -62,6 +75,7 @@ function setup() {
     s.setColumnWidth(2, 340);
     s.setColumnWidth(3, 180);
     s.setColumnWidth(4, 180);
+    s.setColumnWidth(5, 240);
   }
 }
 
@@ -89,7 +103,9 @@ function getConfig() {
   return {
     stores: readColumn_(s, 1),
     categories: readColumn_(s, 3),
-    team: readColumn_(s, 4)
+    team: readColumn_(s, 4),
+    products: readColumn_(s, 5),
+    timeSlots: TIME_SLOTS
   };
 }
 
@@ -117,10 +133,17 @@ function cleanPhone_(p) {
   return d;
 }
 
-function to12h_(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + suffix;
+// Trims, drops blanks and duplicates, and checks each one against Setup column E
+function cleanProducts_(list) {
+  const picked = (Array.isArray(list) ? list : [list])
+    .map(v => String(v == null ? '' : v).trim()).filter(String)
+    .filter((v, i, all) => all.indexOf(v) === i);
+  const known = readColumn_(setupSheet_(), 5);
+  if (known.length) {
+    const bad = picked.find(p => known.indexOf(p) < 0);
+    if (bad) throw new Error('"' + bad + '" is not in the product list in the Setup tab.');
+  }
+  return picked;
 }
 
 function submitLead(f) {
@@ -134,10 +157,11 @@ function submitLead(f) {
   });
 
   const phone = cleanPhone_(f.phone);
+  if (TIME_SLOTS.indexOf(f.visitTime) < 0) throw new Error('Choose an expected visit time from the list.');
+  const products = cleanProducts_(f.products);
   const groupLink = groupLinkFor_(f.store.trim());
   const [y, mo, d] = f.visitDate.split('-').map(Number);
   const visitDate = new Date(y, mo - 1, d);
-  const visitTime = to12h_(f.visitTime);
   const tz = Session.getScriptTimeZone();
 
   const lock = LockService.getScriptLock();
@@ -149,25 +173,28 @@ function submitLead(f) {
     id = 'L' + String(sheet.getLastRow()).padStart(4, '0');
     sheet.appendRow([
       id, new Date(), safe_(f.store), safe_(f.name), "'" + phone,
-      safe_(f.product), safe_(f.category), visitDate, visitTime,
+      safe_(products.join(', ')), safe_(f.category), visitDate, f.visitTime,
       safe_(f.discount), safe_(f.remarks), safe_(f.submittedBy)
     ]);
   } finally {
     lock.releaseLock();
   }
 
-  const product = String(f.product || '').trim();
   const lines = [
     '*New lead for Frido ' + f.store.trim() + '*',
     '',
-    'Name: ' + f.name.trim(),
-    'Number: +91 ' + phone,
-    'Product: ' + (product ? product + ' (' + f.category + ')' : f.category),
-    'Visiting: ' + Utilities.formatDate(visitDate, tz, 'EEE, d MMM') + ' at ' + visitTime,
-    'Discount offered: ' + (String(f.discount || '').trim() || 'None')
+    'Customer name: ' + f.name.trim(),
+    'Customer number: +91 ' + phone
   ];
+  if (products.length) lines.push('Product: ' + products.join(', '));
+  lines.push(
+    'Product category: ' + f.category.trim(),
+    'Visit date: ' + Utilities.formatDate(visitDate, tz, 'EEE, d MMM'),
+    'Visit time: ' + f.visitTime,
+    'Discount offered: ' + (String(f.discount || '').trim() || 'None')
+  );
   if (String(f.remarks || '').trim()) lines.push('Remarks: ' + f.remarks.trim());
-  lines.push('', 'Lead ' + id + ', sent by ' + f.submittedBy.trim());
+  lines.push('', 'Lead #' + id + ', sent by ' + f.submittedBy.trim());
 
   return { id: id, store: f.store.trim(), groupLink: groupLink, message: lines.join('\n') };
 }
